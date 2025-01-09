@@ -1,4 +1,3 @@
-
 import { Telegraf } from "telegraf";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
@@ -16,6 +15,28 @@ const dietOptions = [
 ];
 const subgoalOptions = ["Bulk", "Cut"];
 const preferenceOptions = ["Veg", "Non-Veg", "Vegan", "Pescatarian", "Custom"];
+const cuisineOptions = [
+  "Indian",
+  "Italian",
+  "Chinese",
+  "Mexican",
+  "American",
+  "Thai",
+  "Japanese",
+  "Mediterranean",
+  "French",
+  "Korean",
+  "Greek",
+  "Vietnamese",
+  "Spanish",
+  "Middle Eastern",
+  "Caribbean",
+  "African",
+  "German",
+  "Turkish",
+  "Russian",
+  "Australian",
+];
 
 // Variables to store user inputs
 
@@ -43,6 +64,7 @@ const resetUserState = (chatId) => {
     foodPreference: "",
     includeIngredients: "",
     foodPreference: "",
+    preferenceOptions: "",
   };
 };
 const parseMealPlan = (content) => {
@@ -97,10 +119,8 @@ const handleGenerateMealPlan = async (chatId) => {
           },
           {
             role: "user",
-            content: `Create a meal plan for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight and keep ${foodPreference} in mind strictly. Include these ingredients: ${
-              includeIngredients || "none"
-            }. Provide 6 options for breakfast, lunch, and dinner.`,
-          },
+            content: `Create a meal plan for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
+          },          
         ],
       }),
     });
@@ -169,19 +189,28 @@ const handleGenerateGroceryList = async (chatId) => {
         messages: [
           {
             role: "system",
-            content: "You are a grocery list assistant.",
-          },
-          {
-            role: "user",
-            content: `Generate a structured human-readable grocery list for the following meal plan: ${JSON.stringify(
+            content: `
+            Generate a structured human-readable grocery list for the following meal plan: ${JSON.stringify(
               mealPlan
             )}. For each ingredient, include only "ingredient" and "quantity" in the format:
-  ingredient: quantity round up to whole number only
-  ingredient: quantity round up to whole number number only
-  For example:
-  Eggs: 12
-  Milk: 1 
-  Do not include sections like breakfast, lunch, or dinner. Only list the main whole ingredients with their quantities. Add up duplicates and show once dont show the same ingredient twice.`,
+            ingredient: quantity round up to whole number only
+            ingredient: quantity round up to whole number number only
+            For example:
+            Eggs: 12
+            Milk: 1 
+            Do not include sections like breakfast, lunch, or dinner.remove unnecessary words like "minced",
+      "chopped",
+      "sliced",
+      "diced",
+      "shredded",
+      "toasted",
+      "grated",
+      "peeled",
+      "seeded",
+      "cut",
+      "thinly",
+      "to taste"
+      "freshly","roasted","baked","steamed","toast", "grilled","smoked","vegetables", "cooked",etc. Only list the main whole ingredients with their quantities. Add up duplicates and show once dont show the same ingredient twice.`,
           },
         ],
       }),
@@ -263,11 +292,10 @@ bot.on("text", async (ctx) => {
     });
   } else if (!state.foodPreference && preferenceOptions.includes(userMessage)) {
     state.foodPreference = userMessage;
-    state.preferenceOptions = userMessage;
 
     if (userMessage === "Custom") {
       await ctx.reply(
-        "Please describe your custom diet preferences or restrictions."
+        "Please describe your custom diet preferences or restrictions or allergies."
       );
     } else {
       await ctx.reply(
