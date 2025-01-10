@@ -14,7 +14,26 @@ const dietOptions = [
   "IBS (Irritable Bowel Syndrome) Diet",
 ];
 const subgoalOptions = ["Bulk", "Cut"];
-const preferenceOptions = ["Veg", "Non-Veg", "Vegan", "Pescatarian", "Custom"];
+const preferenceOptions = [
+    "Veg",
+    "Non-Veg",
+    "Vegan",
+    "Pescatarian",
+];
+const lifestyleOptions = [
+    "Gluten-Free",
+    "Dairy-Free",
+    "Keto",
+    "Paleo",
+    "Halal",
+    "Kosher",
+    "Raw Food",
+    "Organic",
+    "Whole30",
+    "Intermittent Fasting",
+    "FODMAP"
+]
+
 const cuisineOptions = [
   "Indian",
   "Italian",
@@ -65,6 +84,8 @@ const resetUserState = (chatId) => {
     includeIngredients: "",
     foodPreference: "",
     preferenceOptions: "",
+    cuisinePreference: "",
+    selectedCuisines: "",
   };
 };
 const parseMealPlan = (content) => {
@@ -88,7 +109,13 @@ const parseMealPlan = (content) => {
 };
 const handleGenerateMealPlan = async (chatId) => {
   const user = userState[chatId];
-  if (!user || !user.dietPreference || !user.subGoal || !user.foodPreference) {
+  if (
+    !user ||
+    !user.dietPreference ||
+    !user.subGoal ||
+    !user.foodPreference ||
+    !user.cuisinePreference
+  ) {
     await bot.telegram.sendMessage(
       chatId,
       "Please complete all steps before generating a meal plan."
@@ -96,7 +123,14 @@ const handleGenerateMealPlan = async (chatId) => {
     return;
   }
 
-  const { dietPreference, subGoal, includeIngredients, foodPreference } = user;
+  const {
+    dietPreference,
+    subGoal,
+    includeIngredients,
+    foodPreference,
+    cuisinePreference,
+    selectedCuisines,
+  } = user;
 
   try {
     await bot.telegram.sendMessage(
@@ -119,8 +153,8 @@ const handleGenerateMealPlan = async (chatId) => {
           },
           {
             role: "user",
-            content: `Create a meal plan for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
-          },          
+            content: `Create a meal plan for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
+          },
         ],
       }),
     });
@@ -290,24 +324,58 @@ bot.on("text", async (ctx) => {
         one_time_keyboard: true,
       },
     });
+   
+    
   } else if (!state.foodPreference && preferenceOptions.includes(userMessage)) {
     state.foodPreference = userMessage;
 
-    if (userMessage === "Custom") {
-      await ctx.reply(
-        "Please describe your custom diet preferences or restrictions or allergies."
-      );
-    } else {
-      await ctx.reply(
-        "Do you have any allergies or dietary restrictions? (yes/no)",
-        {
-          reply_markup: { remove_keyboard: true },
-        }
-      );
+    // Proceed to cuisine selection
+    state.selectedCuisines = []; // Initialize the cuisine selection list
+    await ctx.reply("Please select one or more cuisines:", {
+      reply_markup: {
+        keyboard: cuisineOptions.map((option) => [option]),
+        one_time_keyboard: false,
+      },
+    });
+  } else if (!state.cuisinePreference && cuisineOptions.includes(userMessage)) {
+    if (!state.selectedCuisines.includes(userMessage)) {
+      state.selectedCuisines.push(userMessage);
     }
-  } else if (userMessage.toLowerCase() === "yes") {
-    await ctx.reply("Please specify your allergies or ingredients to avoid.");
-  } else if (userMessage.toLowerCase() === "no") {
+
+    await ctx.reply(
+      `You've selected: ${state.selectedCuisines.join(
+        ", "
+      )}. Would you like to select another cuisine? (yes/no)`,
+      {
+        reply_markup: {
+          keyboard: [["Yes"], ["No"]],
+          one_time_keyboard: true,
+        },
+      }
+    );
+  } else if (!state.cuisinePreference && userMessage.toLowerCase() === "yes") {
+    await ctx.reply("Please select another cuisine:", {
+      reply_markup: {
+        keyboard: cuisineOptions.map((option) => [option]),
+        one_time_keyboard: false,
+      },
+    });
+  } else if (!state.cuisinePreference && userMessage.toLowerCase() === "no") {
+    state.cuisinePreference =
+      state.selectedCuisines.length > 0
+        ? state.selectedCuisines
+        : ["No specific preference"];
+
+    // Proceed to allergies step
+    await ctx.reply(
+      "Do you have any allergies or dietary restrictions or anything else you'd like to mention? (yes/no)",
+      {
+        reply_markup: { remove_keyboard: true },
+      }
+    );
+  } else if (userMessage.toLowerCase() === "yes" && !state.includeIngredients) {
+    await ctx.reply("Please specify your allergies or ingredients to avoid or include or calorie intake");
+  } else if (userMessage.toLowerCase() === "no" && !state.includeIngredients) {
     await handleGenerateMealPlan(chatId);
   } else if (!state.includeIngredients) {
     state.includeIngredients = userMessage;
@@ -317,9 +385,8 @@ bot.on("text", async (ctx) => {
   }
 
   if (state?.waitingForGroceryListResponse) {
-    // Call handleUserResponse and clear the state
     await handleUserResponse(chatId, userMessage);
-    userState[chatId].waitingForGroceryListResponse = false; // Reset state
+    userState[chatId].waitingForGroceryListResponse = false;
     return;
   }
 });
