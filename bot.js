@@ -1,10 +1,60 @@
 import { Telegraf } from "telegraf";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import { SpeechClient } from "@google-cloud/speech";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 dotenv.config();
 
 // Initialize the Telegram bot
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+
+const speechClient = new SpeechClient();
+
+// // Handle voice messages
+// bot.on('voice', async (ctx) => {
+//     const file_id = ctx.message.voice.file_id;
+
+//     // Get the file link for the voice message
+//     const fileUrl = await ctx.telegram.getFileLink(file_id);
+
+//     // Fetch the audio file as a buffer (in-memory)
+//     const res = await fetch(fileUrl);
+//     const audioBuffer = await res.buffer();  // Get audio as buffer
+
+//     // Prepare the audio for Google Speech-to-Text
+//     const audio = {
+//         content: audioBuffer.toString('base64'),  // Convert the buffer to base64 encoding
+//     };
+
+//     const config = {
+//         encoding: 'OGG_OPUS',  // Specify the audio format
+//         sampleRateHertz: 16000, // Adjust if necessary based on your audio sample rate
+//         languageCode: 'en-US',  // Change based on your language preference
+//     };
+
+//     const request = {
+//         audio: audio,
+//         config: config,
+//     };
+
+//     try {
+//         // Recognize speech from the audio buffer
+//         const [response] = await speechClient.recognize(request);
+//         const transcript = response.results
+//             .map(result => result.alternatives[0].transcript)
+//             .join('\n');
+
+//         console.log('Transcription:', transcript);
+
+//         // Send the transcription back to the user
+//         ctx.reply(`Transcription: ${transcript}`);
+//     } catch (err) {
+//         console.error('Error transcribing the voice message:', err);
+//         ctx.reply('Sorry, there was an error processing the voice message.');
+//     }
+// });
 
 // Define options
 const dietOptions = [
@@ -14,25 +64,20 @@ const dietOptions = [
   "IBS (Irritable Bowel Syndrome) Diet",
 ];
 const subgoalOptions = ["Bulk", "Cut"];
-const preferenceOptions = [
-    "Veg",
-    "Non-Veg",
-    "Vegan",
-    "Pescatarian",
-];
+const preferenceOptions = ["Veg", "Non-Veg", "Vegan", "Pescatarian"];
 const lifestyleOptions = [
-    "Gluten-Free",
-    "Dairy-Free",
-    "Keto",
-    "Paleo",
-    "Halal",
-    "Kosher",
-    "Raw Food",
-    "Organic",
-    "Whole30",
-    "Intermittent Fasting",
-    "FODMAP"
-]
+  "Gluten-Free",
+  "Dairy-Free",
+  "Keto",
+  "Paleo",
+  "Halal",
+  "Kosher",
+  "Raw Food",
+  "Organic",
+  "Whole30",
+  "Intermittent Fasting",
+  "FODMAP",
+];
 
 const cuisineOptions = [
   "Indian",
@@ -153,7 +198,7 @@ const handleGenerateMealPlan = async (chatId) => {
           },
           {
             role: "user",
-            content: `Create a meal plan for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
+            content: `Create a meal plan with calories for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
           },
         ],
       }),
@@ -229,10 +274,10 @@ const handleGenerateGroceryList = async (chatId) => {
             )}. For each ingredient, include only "ingredient" and "quantity" in the format:
             ingredient: quantity round up to whole number only
             ingredient: quantity round up to whole number number only
-            For example:
+            strictly follow format:
             Eggs: 12
             Milk: 1 
-            Do not include sections like breakfast, lunch, or dinner.remove unnecessary words like "minced",
+            Do not include sections like breakfast, lunch, or dinner.dont show calories. remove unnecessary words like "minced",
       "chopped",
       "sliced",
       "diced",
@@ -324,8 +369,6 @@ bot.on("text", async (ctx) => {
         one_time_keyboard: true,
       },
     });
-   
-    
   } else if (!state.foodPreference && preferenceOptions.includes(userMessage)) {
     state.foodPreference = userMessage;
 
@@ -365,20 +408,36 @@ bot.on("text", async (ctx) => {
       state.selectedCuisines.length > 0
         ? state.selectedCuisines
         : ["No specific preference"];
-
-    // Proceed to allergies step
+    // Ask for the budget now
     await ctx.reply(
-      "Do you have any allergies or dietary restrictions or anything else you'd like to mention? (yes/no)",
-      {
-        reply_markup: { remove_keyboard: true },
-      }
+      "Now, please provide your budget for the meal plan (in your preferred currency):"
     );
+  } else if (!state.budget) {
+    // Ensure the budget is a valid number
+    const budget = parseFloat(userMessage);
+    if (!isNaN(budget) && budget > 0) {
+      state.budget = budget; // Save the budget
+      await ctx.reply(`Got it! Your budget is ${state.budget}.`);
+
+      // Proceed with allergies or dietary restrictions
+      await ctx.reply(
+        "Do you have any allergies or dietary restrictions or anything else you'd like to mention? (yes/no)",
+        {
+          reply_markup: { remove_keyboard: true },
+        }
+      );
+    } else {
+      await ctx.reply("Please provide a valid numeric budget.");
+    }
   } else if (userMessage.toLowerCase() === "yes" && !state.includeIngredients) {
-    await ctx.reply("Please specify your allergies or ingredients to avoid or include or calorie intake");
+    await ctx.reply(
+      "Please specify your allergies or ingredients to avoid or include or calorie intake"
+    );
   } else if (userMessage.toLowerCase() === "no" && !state.includeIngredients) {
+    // Handle the case when no allergies are specified
     await handleGenerateMealPlan(chatId);
   } else if (!state.includeIngredients) {
-    state.includeIngredients = userMessage;
+    state.includeIngredients = userMessage; // Save allergies or restrictions input
     await handleGenerateMealPlan(chatId);
   } else {
     await ctx.reply("I did not understand that. Please try again.");
@@ -390,6 +449,5 @@ bot.on("text", async (ctx) => {
     return;
   }
 });
-
 // Start the bot
 bot.launch();

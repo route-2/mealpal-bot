@@ -2,7 +2,7 @@
   "name": "mealpal-bot",
   "version": "1.0.0",
   "main": "bot.js",
-  "type": "module", 
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -11,8 +11,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@google-cloud/speech": "^6.7.0",
     "dotenv": "^16.4.7",
     "node-fetch": "^3.3.2",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "vosk": "^0.3.39"
   }
 }
