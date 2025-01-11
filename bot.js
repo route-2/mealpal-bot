@@ -130,7 +130,10 @@ const resetUserState = (chatId) => {
     foodPreference: "",
     preferenceOptions: "",
     cuisinePreference: "",
-    selectedCuisines: "",
+    selectedCuisines: [],
+    budget: null,
+    waitingForGroceryListResponse: false,
+    waitingForPlaceOrderResponse: false,
   };
 };
 const parseMealPlan = (content) => {
@@ -310,6 +313,8 @@ const handleGenerateGroceryList = async (chatId) => {
       chatId,
       "Would you like to Place Order? Reply with 'Yes' or 'No'"
     );
+    userState[chatId].waitingForPlaceOrderResponse = true;
+    
   } catch (error) {
     console.error("Error generating grocery list:", error);
     await bot.telegram.sendMessage(
@@ -318,6 +323,43 @@ const handleGenerateGroceryList = async (chatId) => {
     );
   }
 };
+async function handlePlaceOrder(chatId) {
+    // try {
+    //   // 1) Check if user has a Kroger token in NestJS
+    //   // Requires a GET /auth/kroger/get-token?chatId=... endpoint
+    //   const response = await fetch(`http://localhost:3001/auth/kroger/get-token?chatId=${chatId}`);
+  
+    //   if (response.status === 404) {
+    //     // Not logged in -> prompt them to login
+    //     const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
+    //     await bot.telegram.sendMessage(
+    //       chatId,
+    //       `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
+    //     );
+    //     return;
+    //   } else if (!response.ok) {
+    //     // Other error
+    //     await bot.telegram.sendMessage(chatId, "Error checking Kroger token.");
+    //     return;
+    //   }
+  
+    //   // 2) If we do have a token, proceed to place the order
+    //   const data = await response.json();
+    //   const userToken = data.access_token;
+  
+    //   // Here, you'd do "search for product," "nearest location," "cart add," etc.
+    //   // For demo, let's just say "Order placed!"
+    //   await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
+    // } catch (error) {
+    //   console.error("Error in handlePlaceOrder:", error);
+    //   await bot.telegram.sendMessage(
+    //     chatId,
+    //     "Error placing order. Please try again later."
+    //   );
+    // }
+    await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
+  }
+  
 
 // Handle user response for grocery list
 const handleUserResponse = async (chatId, userResponse) => {
@@ -352,6 +394,24 @@ bot.on("text", async (ctx) => {
   if (!userState[chatId]) resetUserState(chatId);
 
   const state = userState[chatId];
+  if (state?.waitingForGroceryListResponse) {
+    await handleUserResponse(chatId, userMessage);
+    userState[chatId].waitingForGroceryListResponse = false;
+    return;
+  }
+  if (state.waitingForPlaceOrderResponse) {
+    if (userMessage.trim().toLowerCase() === "yes") {
+      // The user wants to place the order
+      await handlePlaceOrder(chatId);
+    } else if (userMessage.trim().toLowerCase() === "no") {
+      await ctx.reply("Okay, order cancelled.");
+    } else {
+      await ctx.reply("Please reply with 'Yes' or 'No'.");
+    }
+    // Reset the flag
+    state.waitingForPlaceOrderResponse = false;
+    return;
+  }
 
   if (!state.dietPreference && dietOptions.includes(userMessage)) {
     state.dietPreference = userMessage;
@@ -443,11 +503,7 @@ bot.on("text", async (ctx) => {
     await ctx.reply("I did not understand that. Please try again.");
   }
 
-  if (state?.waitingForGroceryListResponse) {
-    await handleUserResponse(chatId, userMessage);
-    userState[chatId].waitingForGroceryListResponse = false;
-    return;
-  }
+  
 });
 // Start the bot
 bot.launch();
