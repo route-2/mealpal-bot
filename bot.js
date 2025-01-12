@@ -2,6 +2,7 @@ import { Telegraf } from "telegraf";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 import { SpeechClient } from "@google-cloud/speech";
+import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -136,6 +137,7 @@ const resetUserState = (chatId) => {
     waitingForPlaceOrderResponse: false,
   };
 };
+const API_BASE_URL = "https://265c-192-5-91-93.ngrok-free.app/auth/kroger";
 const parseMealPlan = (content) => {
   const mealPlan = {};
   const sections = content.split("\n\n");
@@ -247,6 +249,36 @@ const handleGenerateMealPlan = async (chatId) => {
     );
   }
 };
+
+async function getKrogerAccessToken(chatId) {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/get-tokens`, {
+      params: { chatId },
+    });
+
+    if (response.data.access_token) {
+      console.log("Access Token:", response.data.access_token);
+      return response.data.access_token; // Return the access token
+    } else {
+      console.log("No tokens found for this user.");
+      return null;
+    }
+  } catch (error) {
+    console.error("Error fetching Kroger tokens:", error.message);
+    return null;
+  }
+}
+bot.command("get_kroger_token", async (ctx) => {
+  const chatId = ctx.chat.id;
+
+  const accessToken = await getKrogerAccessToken(chatId);
+
+  if (accessToken) {
+    ctx.reply(`✅ Your Kroger access token is: ${accessToken}`);
+  } else {
+    ctx.reply("⚠️ You are not authenticated with Kroger. Please log in first.");
+  }
+});
 
 const handleGenerateGroceryList = async (chatId) => {
   if (!mealPlan || Object.keys(mealPlan).length === 0) {
@@ -402,7 +434,8 @@ bot.on("text", async (ctx) => {
   if (state.waitingForPlaceOrderResponse) {
     if (userMessage.trim().toLowerCase() === "yes") {
       // The user wants to place the order
-      const loginUrl = `https://0017-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`;
+      const loginUrl =
+        `https://265c-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`.trim();
 
       await ctx.reply("Please tap the button below to log in to Kroger:", {
         reply_markup: {
@@ -462,7 +495,7 @@ bot.on("text", async (ctx) => {
     }
 
     await ctx.reply(
-      `You've selected: ${state.selectedCuisines.join(
+      ` You've selected: ${state.selectedCuisines.join(
         ", "
       )}. Would you like to select another cuisine? (yes/no)`,
       {
