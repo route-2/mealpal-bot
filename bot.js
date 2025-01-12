@@ -1,7 +1,10 @@
 import { Telegraf } from "telegraf";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import Redis from "ioredis";
+
 import { SpeechClient } from "@google-cloud/speech";
+import schedule from "node-schedule";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
@@ -12,7 +15,15 @@ dotenv.config();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 const speechClient = new SpeechClient();
+const redis = new Redis();
 
+redis.on("connect", () => {
+    console.log("Redis connected successfully.");
+  });
+  
+  redis.on("error", (err) => {
+    console.error("Redis connection error:", err);
+  });
 // // Handle voice messages
 // bot.on('voice', async (ctx) => {
 //     const file_id = ctx.message.voice.file_id;
@@ -249,25 +260,76 @@ const handleGenerateMealPlan = async (chatId) => {
     );
   }
 };
+const refreshTokensCronJob = async () => {
+    try {
+      // Fetch all users with tokens stored in Redis
+      const keys = await redis.keys("kroger_tokens:*");
+  
+      for (const key of keys) {
+        const chatId = key.split(":")[1];
+        const tokenData = JSON.parse(await redis.get(key));
+  
+        if (tokenData && tokenData.refresh_token) {
+          console.log(`Refreshing token for chat ID: ${chatId}`);
+  
+          try {
+            // Refresh the access token
+            const response = await axios.post(
+              "https://api.kroger.com/v1/connect/oauth2/token",
+              new URLSearchParams({
+                client_id: process.env.KROGER_CLIENT_ID,
+                client_secret: process.env.KROGER_CLIENT_SECRET,
+                grant_type: "refresh_token",
+                refresh_token: tokenData.refresh_token,
+              }).toString(),
+              {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              }
+            );
+  
+            const { access_token, refresh_token, expires_in } = response.data;
+  
+            // Save the updated tokens
+            await redis.set(
+              key,
+              JSON.stringify({ access_token, refresh_token, expires_in }),
+              "EX",
+              expires_in // Set TTL to match expiration
+            );
+  
+            console.log(`Refreshed token for chat ID ${chatId}`);
+          } catch (err) {
+            console.error(
+              `Error refreshing token for chat ID ${chatId}:`,
+              err.message
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error running token refresh job:", err.message);
+    }
+  };
+  schedule.scheduleJob("*/15 * * * *", refreshTokensCronJob);
+
 
 async function getKrogerAccessToken(chatId) {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/get-tokens`, {
-      params: { chatId },
-    });
-
-    if (response.data.access_token) {
-      console.log("Access Token:", response.data.access_token);
-      return response.data.access_token; // Return the access token
-    } else {
-      console.log("No tokens found for this user.");
+    try {
+      const tokenData = JSON.parse(await redis.get(`kroger_tokens:${chatId}`));
+  
+      if (tokenData && tokenData.access_token) {
+        console.log("Access Token:", tokenData.access_token);
+        return tokenData.access_token; // Return the access token
+      } else {
+        console.log("No tokens found for this user.");
+        return null;
+      }
+    } catch (error) {
+      console.error("Error fetching Kroger tokens:", error.message);
       return null;
     }
-  } catch (error) {
-    console.error("Error fetching Kroger tokens:", error.message);
-    return null;
   }
-}
+  
 bot.command("get_kroger_token", async (ctx) => {
   const chatId = ctx.chat.id;
 
@@ -279,6 +341,7 @@ bot.command("get_kroger_token", async (ctx) => {
     ctx.reply("⚠️ You are not authenticated with Kroger. Please log in first.");
   }
 });
+
 
 const handleGenerateGroceryList = async (chatId) => {
   if (!mealPlan || Object.keys(mealPlan).length === 0) {
@@ -355,43 +418,31 @@ const handleGenerateGroceryList = async (chatId) => {
   }
 };
 async function handlePlaceOrder(chatId) {
-  try {
-    // 1) Check if user has a Kroger token in NestJS
-    // Requires a GET /auth/kroger/get-token?chatId=... endpoint
-    const response = await fetch(
-      `http://localhost:3001/auth/kroger/get-token?chatId=${chatId}`
-    );
-
-    if (response.status === 404) {
-      // Not logged in -> prompt them to login
-      const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
+    try {
+      const userToken = await getKrogerAccessToken(chatId);
+  
+      if (!userToken) {
+        // User is not logged in, prompt them to log in
+        const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
+        await bot.telegram.sendMessage(
+          chatId,
+          `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
+        );
+        return;
+      }
+  
+      // Use the access token for Kroger API calls
+      console.log(`Placing order with token: ${userToken}`);
+      await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
+    } catch (error) {
+      console.error("Error in handlePlaceOrder:", error);
       await bot.telegram.sendMessage(
         chatId,
-        `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
+        "Error placing order. Please try again later."
       );
-      return;
-    } else if (!response.ok) {
-      // Other error
-      await bot.telegram.sendMessage(chatId, "Error checking Kroger token.");
-      return;
     }
-
-    // 2) If we do have a token, proceed to place the order
-    const data = await response.json();
-    const userToken = data.access_token;
-
-    // Here, you'd do "search for product," "nearest location," "cart add," etc.
-    // For demo, let's just say "Order placed!"
-    await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
-  } catch (error) {
-    console.error("Error in handlePlaceOrder:", error);
-    await bot.telegram.sendMessage(
-      chatId,
-      "Error placing order. Please try again later."
-    );
   }
-  await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
-}
+  
 
 // Handle user response for grocery list
 const handleUserResponse = async (chatId, userResponse) => {
@@ -418,6 +469,36 @@ bot.start((ctx) => {
     },
   });
 });
+
+bot.command("place_order", async (ctx) => {
+    const chatId = ctx.chat.id;
+  
+    try {
+      // Fetch the access token from Redis
+      const userToken = await getKrogerAccessToken(chatId);
+  
+      if (!userToken) {
+        // If no token is found, prompt the user to log in
+        const loginUrl = `https://265c-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`;
+        await ctx.reply(
+          `⚠️ You are not authenticated with Kroger. Please log in first:\n\n${loginUrl}`
+        );
+        return;
+      }
+  
+      // If token exists, simulate order placement
+      await ctx.reply("✅ Token found! Placing your order...");
+  
+      // Simulated order placement logic
+      console.log(`Placing order for chat ID ${chatId} with token: ${userToken}`);
+      await ctx.reply("🎉 Your order has been placed successfully!");
+  
+    } catch (error) {
+      console.error("Error during order placement:", error.message);
+      await ctx.reply("❌ Something went wrong. Please try again later.");
+    }
+  });
+  
 
 bot.on("text", async (ctx) => {
   const chatId = ctx.chat.id;
