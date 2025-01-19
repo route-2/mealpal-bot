@@ -214,7 +214,7 @@ const handleGenerateMealPlan = async (chatId) => {
           },
           {
             role: "user",
-            content: `Create a meal plan with calories for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. Use these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
+            content: `Create a meal plan with calories for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. exclude these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
           },
         ],
       }),
@@ -611,7 +611,7 @@ bot.on("text", async (ctx) => {
 
       // Proceed with allergies or dietary restrictions
       await ctx.reply(
-        "Do you have any allergies or dietary restrictions or anything else you'd like to mention? (yes/no)",
+        "Do you have any allergies or dietary restrictions? (yes/no)",
         {
           reply_markup: { remove_keyboard: true },
         }
@@ -621,7 +621,7 @@ bot.on("text", async (ctx) => {
     }
   } else if (userMessage.toLowerCase() === "yes" && !state.includeIngredients) {
     await ctx.reply(
-      "Please specify your allergies or ingredients to avoid or include or calorie intake"
+      "Please specify your allergies or ingredients to avoid"
     );
   } else if (userMessage.toLowerCase() === "no" && !state.includeIngredients) {
     // Handle the case when no allergies are specified
