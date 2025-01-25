@@ -18,12 +18,12 @@ const speechClient = new SpeechClient();
 const redis = new Redis();
 
 redis.on("connect", () => {
-    console.log("Redis connected successfully.");
-  });
-  
-  redis.on("error", (err) => {
-    console.error("Redis connection error:", err);
-  });
+  console.log("Redis connected successfully.");
+});
+
+redis.on("error", (err) => {
+  console.error("Redis connection error:", err);
+});
 // // Handle voice messages
 // bot.on('voice', async (ctx) => {
 //     const file_id = ctx.message.voice.file_id;
@@ -214,7 +214,7 @@ const handleGenerateMealPlan = async (chatId) => {
           },
           {
             role: "user",
-            content: `Create a meal plan with calories for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. exclude these ingredients: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
+            content: `Create a meal plan with CALORIES for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. exclude these ingredients striclty: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
           },
         ],
       }),
@@ -261,75 +261,74 @@ const handleGenerateMealPlan = async (chatId) => {
   }
 };
 const refreshTokensCronJob = async () => {
-    try {
-      // Fetch all users with tokens stored in Redis
-      const keys = await redis.keys("kroger_tokens:*");
-  
-      for (const key of keys) {
-        const chatId = key.split(":")[1];
-        const tokenData = JSON.parse(await redis.get(key));
-  
-        if (tokenData && tokenData.refresh_token) {
-          console.log(`Refreshing token for chat ID: ${chatId}`);
-  
-          try {
-            // Refresh the access token
-            const response = await axios.post(
-              "https://api.kroger.com/v1/connect/oauth2/token",
-              new URLSearchParams({
-                client_id: process.env.KROGER_CLIENT_ID,
-                client_secret: process.env.KROGER_CLIENT_SECRET,
-                grant_type: "refresh_token",
-                refresh_token: tokenData.refresh_token,
-              }).toString(),
-              {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              }
-            );
-  
-            const { access_token, refresh_token, expires_in } = response.data;
-  
-            // Save the updated tokens
-            await redis.set(
-              key,
-              JSON.stringify({ access_token, refresh_token, expires_in }),
-              "EX",
-              expires_in // Set TTL to match expiration
-            );
-  
-            console.log(`Refreshed token for chat ID ${chatId}`);
-          } catch (err) {
-            console.error(
-              `Error refreshing token for chat ID ${chatId}:`,
-              err.message
-            );
-          }
+  try {
+    // Fetch all users with tokens stored in Redis
+    const keys = await redis.keys("kroger_tokens:*");
+
+    for (const key of keys) {
+      const chatId = key.split(":")[1];
+      const tokenData = JSON.parse(await redis.get(key));
+
+      if (tokenData && tokenData.refresh_token) {
+        console.log(`Refreshing token for chat ID: ${chatId}`);
+
+        try {
+          // Refresh the access token
+          const response = await axios.post(
+            "https://api.kroger.com/v1/connect/oauth2/token",
+            new URLSearchParams({
+              client_id: process.env.KROGER_CLIENT_ID,
+              client_secret: process.env.KROGER_CLIENT_SECRET,
+              grant_type: "refresh_token",
+              refresh_token: tokenData.refresh_token,
+            }).toString(),
+            {
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            }
+          );
+
+          const { access_token, refresh_token, expires_in } = response.data;
+
+          // Save the updated tokens
+          await redis.set(
+            key,
+            JSON.stringify({ access_token, refresh_token, expires_in }),
+            "EX",
+            expires_in // Set TTL to match expiration
+          );
+
+          console.log(`Refreshed token for chat ID ${chatId}`);
+        } catch (err) {
+          console.error(
+            `Error refreshing token for chat ID ${chatId}:`,
+            err.message
+          );
         }
       }
-    } catch (err) {
-      console.error("Error running token refresh job:", err.message);
     }
-  };
-  schedule.scheduleJob("*/15 * * * *", refreshTokensCronJob);
-
+  } catch (err) {
+    console.error("Error running token refresh job:", err.message);
+  }
+};
+schedule.scheduleJob("*/15 * * * *", refreshTokensCronJob);
 
 async function getKrogerAccessToken(chatId) {
-    try {
-      const tokenData = JSON.parse(await redis.get(`kroger_tokens:${chatId}`));
-  
-      if (tokenData && tokenData.access_token) {
-        console.log("Access Token:", tokenData.access_token);
-        return tokenData.access_token; // Return the access token
-      } else {
-        console.log("No tokens found for this user.");
-        return null;
-      }
-    } catch (error) {
-      console.error("Error fetching Kroger tokens:", error.message);
+  try {
+    const tokenData = JSON.parse(await redis.get(`kroger_tokens:${chatId}`));
+
+    if (tokenData && tokenData.access_token) {
+      console.log("Access Token:", tokenData.access_token);
+      return tokenData.access_token; // Return the access token
+    } else {
+      console.log("No tokens found for this user.");
       return null;
     }
+  } catch (error) {
+    console.error("Error fetching Kroger tokens:", error.message);
+    return null;
   }
-  
+}
+
 bot.command("get_kroger_token", async (ctx) => {
   const chatId = ctx.chat.id;
 
@@ -341,7 +340,6 @@ bot.command("get_kroger_token", async (ctx) => {
     ctx.reply("⚠️ You are not authenticated with Kroger. Please log in first.");
   }
 });
-
 
 const handleGenerateGroceryList = async (chatId) => {
   if (!mealPlan || Object.keys(mealPlan).length === 0) {
@@ -417,32 +415,126 @@ const handleGenerateGroceryList = async (chatId) => {
     );
   }
 };
+// const response = await fetch("https://api.openai.com/v1/chat/completions", {
+//     method: "POST",
+//     headers: {
+//       "Content-Type": "application/json",
+//       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+//     },
+//     body: JSON.stringify({
+//       model: "gpt-4-turbo",  // ✅ Use the latest model with vision capabilities
+//       messages: [
+//         {
+//           role: "system",
+//           content: "Analyze the following image and list the food items visible in the fridge. Then generate a structured grocery list based on the available ingredients.",
+//         },
+//         {
+//           role: "user",
+//           content: [
+//             { type: "text", text: "What food items do you see in this image? Generate a grocery list based on them." },
+//             { type: "image_url", image_url: { url: "https://hips.hearstapps.com/hmg-prod/images/refrigerator-full-of-food-royalty-free-image-1596641208.jpg?crop=0.778xw:1.00xh;0.107xw,0&resize=1200:*" } }
+//           ],
+//         }
+//       ],
+//       max_tokens: 500
+//     }),
+//   });
+
+//   const data = await response.json();
+//   console.log(data.choices[0].message.content),"image";
+
+// Function to send image to OpenAI's GPT-4 Vision
+async function analyzeImage(imageUrl) {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4-turbo",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Analyze the following image and list the food items visible in the fridge. Then generate a structured grocery list based on the available ingredients.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "What food items do you see in this image? Generate a grocery list based on them.",
+              },
+              { type: "image_url", image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        max_tokens: 500,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.error("OpenAI Error:", data.error);
+      return "⚠️ Error analyzing image. Please try again later.";
+    }
+
+    return data.choices[0].message.content;
+  } catch (error) {
+    console.error("Error:", error);
+    return "⚠️ Something went wrong. Please try again.";
+  }
+}
+
+// Telegram bot listener for images
+bot.on("photo", async (ctx) => {
+  try {
+    // Get the file ID of the largest available photo
+    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+
+    // Get the direct image link from Telegram
+    const fileLink = await ctx.telegram.getFileLink(fileId);
+    console.log("Received image URL:", fileLink);
+
+    // Send the image URL to OpenAI for analysis
+    const result = await analyzeImage(fileLink);
+
+    // Send the response back to the user
+    await ctx.reply(result);
+  } catch (error) {
+    console.error("Error handling image upload:", error);
+    await ctx.reply("⚠️ Unable to process the image. Please try again.");
+  }
+});
+
 async function handlePlaceOrder(chatId) {
-    try {
-      const userToken = await getKrogerAccessToken(chatId);
-  
-      if (!userToken) {
-        // User is not logged in, prompt them to log in
-        const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
-        await bot.telegram.sendMessage(
-          chatId,
-          `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
-        );
-        return;
-      }
-  
-      // Use the access token for Kroger API calls
-      console.log(`Placing order with token: ${userToken}`);
-      await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
-    } catch (error) {
-      console.error("Error in handlePlaceOrder:", error);
+  try {
+    const userToken = await getKrogerAccessToken(chatId);
+
+    if (!userToken) {
+      // User is not logged in, prompt them to log in
+      const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
       await bot.telegram.sendMessage(
         chatId,
-        "Error placing order. Please try again later."
+        `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
       );
+      return;
     }
+
+    // Use the access token for Kroger API calls
+    console.log(`Placing order with token: ${userToken}`);
+    await bot.telegram.sendMessage(chatId, "Order placed (stub)!");
+  } catch (error) {
+    console.error("Error in handlePlaceOrder:", error);
+    await bot.telegram.sendMessage(
+      chatId,
+      "Error placing order. Please try again later."
+    );
   }
-  
+}
 
 // Handle user response for grocery list
 const handleUserResponse = async (chatId, userResponse) => {
@@ -471,34 +563,32 @@ bot.start((ctx) => {
 });
 
 bot.command("place_order", async (ctx) => {
-    const chatId = ctx.chat.id;
-  
-    try {
-      // Fetch the access token from Redis
-      const userToken = await getKrogerAccessToken(chatId);
-  
-      if (!userToken) {
-        // If no token is found, prompt the user to log in
-        const loginUrl = `https://265c-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`;
-        await ctx.reply(
-          `⚠️ You are not authenticated with Kroger. Please log in first:\n\n${loginUrl}`
-        );
-        return;
-      }
-  
-      // If token exists, simulate order placement
-      await ctx.reply("✅ Token found! Placing your order...");
-  
-      // Simulated order placement logic
-      console.log(`Placing order for chat ID ${chatId} with token: ${userToken}`);
-      await ctx.reply("🎉 Your order has been placed successfully!");
-  
-    } catch (error) {
-      console.error("Error during order placement:", error.message);
-      await ctx.reply("❌ Something went wrong. Please try again later.");
+  const chatId = ctx.chat.id;
+
+  try {
+    // Fetch the access token from Redis
+    const userToken = await getKrogerAccessToken(chatId);
+
+    if (!userToken) {
+      // If no token is found, prompt the user to log in
+      const loginUrl = `https://265c-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`;
+      await ctx.reply(
+        `⚠️ You are not authenticated with Kroger. Please log in first:\n\n${loginUrl}`
+      );
+      return;
     }
-  });
-  
+
+    // If token exists, simulate order placement
+    await ctx.reply("✅ Token found! Placing your order...");
+
+    // Simulated order placement logic
+    console.log(`Placing order for chat ID ${chatId} with token: ${userToken}`);
+    await ctx.reply("🎉 Your order has been placed successfully!");
+  } catch (error) {
+    console.error("Error during order placement:", error.message);
+    await ctx.reply("❌ Something went wrong. Please try again later.");
+  }
+});
 
 bot.on("text", async (ctx) => {
   const chatId = ctx.chat.id;
@@ -620,9 +710,7 @@ bot.on("text", async (ctx) => {
       await ctx.reply("Please provide a valid numeric budget.");
     }
   } else if (userMessage.toLowerCase() === "yes" && !state.includeIngredients) {
-    await ctx.reply(
-      "Please specify your allergies or ingredients to avoid"
-    );
+    await ctx.reply("Please specify your allergies or ingredients to avoid");
   } else if (userMessage.toLowerCase() === "no" && !state.includeIngredients) {
     // Handle the case when no allergies are specified
     await handleGenerateMealPlan(chatId);
