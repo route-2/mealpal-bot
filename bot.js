@@ -17,6 +17,10 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const speechClient = new SpeechClient();
 const redis = new Redis();
 
+// Initialize OpenAI client for DeepSeek API
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
+const BASE_URL = "https://api.deepseek.com";
+
 redis.on("connect", () => {
   console.log("Redis connected successfully.");
 });
@@ -24,49 +28,6 @@ redis.on("connect", () => {
 redis.on("error", (err) => {
   console.error("Redis connection error:", err);
 });
-// // Handle voice messages
-// bot.on('voice', async (ctx) => {
-//     const file_id = ctx.message.voice.file_id;
-
-//     // Get the file link for the voice message
-//     const fileUrl = await ctx.telegram.getFileLink(file_id);
-
-//     // Fetch the audio file as a buffer (in-memory)
-//     const res = await fetch(fileUrl);
-//     const audioBuffer = await res.buffer();  // Get audio as buffer
-
-//     // Prepare the audio for Google Speech-to-Text
-//     const audio = {
-//         content: audioBuffer.toString('base64'),  // Convert the buffer to base64 encoding
-//     };
-
-//     const config = {
-//         encoding: 'OGG_OPUS',  // Specify the audio format
-//         sampleRateHertz: 16000, // Adjust if necessary based on your audio sample rate
-//         languageCode: 'en-US',  // Change based on your language preference
-//     };
-
-//     const request = {
-//         audio: audio,
-//         config: config,
-//     };
-
-//     try {
-//         // Recognize speech from the audio buffer
-//         const [response] = await speechClient.recognize(request);
-//         const transcript = response.results
-//             .map(result => result.alternatives[0].transcript)
-//             .join('\n');
-
-//         console.log('Transcription:', transcript);
-
-//         // Send the transcription back to the user
-//         ctx.reply(`Transcription: ${transcript}`);
-//     } catch (err) {
-//         console.error('Error transcribing the voice message:', err);
-//         ctx.reply('Sorry, there was an error processing the voice message.');
-//     }
-// });
 
 // Define options
 const dietOptions = [
@@ -120,34 +81,137 @@ let mealPlan = {};
 let groceryList = [];
 
 const userState = {}; // Ensure this is defined at the top of your file
-
-bot.start((ctx) => {
-  const chatId = ctx.chat.id;
-  userState[chatId] = {}; // Initialize state for the user
-  ctx.reply("Welcome! Let's start by selecting your diet option.", {
-    reply_markup: {
-      keyboard: [dietOptions],
-      one_time_keyboard: true,
-    },
-  });
-});
-
-// Function to reset state for a new user
 const resetUserState = (chatId) => {
-  userState[chatId] = {
-    dietPreference: "",
-    subGoal: "",
-    foodPreference: "",
-    includeIngredients: "",
-    foodPreference: "",
-    preferenceOptions: "",
-    cuisinePreference: "",
-    selectedCuisines: [],
-    budget: null,
-    waitingForGroceryListResponse: false,
-    waitingForPlaceOrderResponse: false,
+    userState[chatId] = {
+      dietPreference: "",
+      subGoal: "",
+      foodPreference: "",
+      includeIngredients: "",
+      foodPreference: "",
+      preferenceOptions: "",
+      cuisinePreference: "",
+      selectedCuisines: [],
+      budget: null,
+      waitingForGroceryListResponse: false,
+      waitingForPlaceOrderResponse: false,
+      location: null,
+      awaitingLocation : true,
+    };
   };
-};
+
+// Modified start command with debug logging
+bot.start(async (ctx) => {
+    try {
+        const chatId = ctx.chat.id;
+        resetUserState(chatId); // Now properly initializes state
+        console.log("Reset state:", userState[chatId]); // Add this debug line
+        
+        await ctx.reply("Welcome! Please share location...");
+      const message = await ctx.reply("Please share your location:", {
+        reply_markup: {
+          keyboard: [[{
+            text: "📍 Share Location",
+            request_location: true
+          }]],
+          one_time_keyboard: true,
+          resize_keyboard: true
+        }
+      });
+      console.log(`Location request message ID: ${message.message_id}`);
+      
+    } catch (error) {
+      console.error("Error in start command:", error);
+    }
+  });
+  
+  // Enhanced location handler with debugging
+  bot.on('location', async (ctx) => {
+    const chatId = ctx.chat.id;
+    console.log(`Location received from ${chatId}`);
+    
+    try {
+      const state = userState[chatId];
+      console.log(`User state before processing: ${JSON.stringify(state)}`);
+      
+      if (!state?.awaitingLocation) {
+        console.log(`Ignoring location from ${chatId} - not awaiting location`);
+        return;
+      }
+  
+      // Validate location structure
+      if (!ctx.message?.location) {
+        console.log(`Invalid location format from ${chatId}`);
+        await ctx.reply("Invalid location format. Please try again.");
+        return;
+      }
+  
+      const { latitude, longitude } = ctx.message.location;
+      console.log(`Raw coordinates: ${latitude},${longitude}`);
+  
+      // Add User-Agent header for Nominatim compliance
+      const headers = {
+        'User-Agent': 'MealPlannerBot/1.0 (contact@example.com)'
+      };
+  
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`,
+        { headers }
+      );
+      
+      console.log(`Geocoding response status: ${response.status}`);
+      const data = await response.json();
+      console.log(`Geocoding response data: ${JSON.stringify(data)}`);
+  
+      if (!data.address) {
+        console.log(`No address found for coordinates ${latitude},${longitude}`);
+        await ctx.reply("Couldn't determine location. Please try again.");
+        return;
+      }
+  
+      // Store formatted location in Redis
+      const locationData = {
+        coordinates: { lat: latitude, lon: longitude },
+        address: {
+          city: data.address.city || data.address.town || data.address.village,
+          region: data.address.state,
+          country: data.address.country,
+          country_code: data.address.country_code
+        }
+      };
+      
+      console.log(`Storing location for ${chatId}: ${JSON.stringify(locationData)}`);
+      await redis.setex(`user:${chatId}:location`, 86400, JSON.stringify(locationData));
+  
+      // Update user state
+      userState[chatId] = {
+        ...state,
+        location: locationData,
+        awaitingLocation: false
+      };
+  
+      console.log(`Updated user state: ${JSON.stringify(userState[chatId])}`);
+      
+      // Proceed to diet selection
+      await ctx.reply(`Thanks! Detected location: ${locationData.address.city}, ${locationData.address.country}`);
+      await ctx.reply("Now select your diet option:", {
+        reply_markup: {
+          keyboard: [dietOptions],
+          one_time_keyboard: true,
+        }
+      });
+  
+    } catch (error) {
+      console.error("Location processing error:", error);
+      await ctx.reply("Couldn't process location. Please try again.");
+      // Send error details to developer
+      await bot.telegram.sendMessage(
+        process.env.ADMIN_CHAT_ID, 
+        `Location error from ${chatId}: ${error.message}`
+      );
+    }
+  });
+// Function to reset state for a new user
+
 const API_BASE_URL = "https://265c-192-5-91-93.ngrok-free.app/auth/kroger";
 const parseMealPlan = (content) => {
   const mealPlan = {};
@@ -199,14 +263,14 @@ const handleGenerateMealPlan = async (chatId) => {
       "Generating a meal plan with your preferences..."
     );
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-3.5-turbo",
+        model: "deepseek-chat",
         messages: [
           {
             role: "system",
@@ -353,14 +417,14 @@ const handleGenerateGroceryList = async (chatId) => {
   try {
     await bot.telegram.sendMessage(chatId, "Generating your grocery list...");
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-3.5-turbo",
+        model: "deepseek-chat",
         messages: [
           {
             role: "system",
