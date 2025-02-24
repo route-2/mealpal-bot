@@ -672,13 +672,15 @@ bot.on("text", async (ctx) => {
       const loginUrl =
         `https://265c-192-5-91-93.ngrok-free.app/auth/kroger/login?state=${chatId}`.trim();
 
+        const externalUrl = `tg://openmessage?url=${encodeURIComponent(loginUrl)}`;
+
       await ctx.reply("Please tap the button below to log in to Kroger:", {
         reply_markup: {
           inline_keyboard: [
             [
               {
                 text: "Log in to Kroger",
-                url: loginUrl,
+                url: externalUrl,
               },
             ],
           ],
