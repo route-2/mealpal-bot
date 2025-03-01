@@ -17,10 +17,6 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const speechClient = new SpeechClient();
 const redis = new Redis();
 
-// Initialize OpenAI client for DeepSeek API
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
-const BASE_URL = "https://api.deepseek.com";
-
 redis.on("connect", () => {
   console.log("Redis connected successfully.");
 });
@@ -75,141 +71,149 @@ const cuisineOptions = [
   "Australian",
 ];
 
-// Variables to store user inputs
-
 let mealPlan = {};
 let groceryList = [];
 
-const userState = {}; // Ensure this is defined at the top of your file
+const userState = {};
 const resetUserState = (chatId) => {
-    userState[chatId] = {
-      dietPreference: "",
-      subGoal: "",
-      foodPreference: "",
-      includeIngredients: "",
-      foodPreference: "",
-      preferenceOptions: "",
-      cuisinePreference: "",
-      selectedCuisines: [],
-      budget: null,
-      waitingForGroceryListResponse: false,
-      waitingForPlaceOrderResponse: false,
-      location: null,
-      awaitingLocation : true,
-    };
+  userState[chatId] = {
+    dietPreference: "",
+    subGoal: "",
+    foodPreference: "",
+    includeIngredients: "",
+    foodPreference: "",
+    preferenceOptions: "",
+    cuisinePreference: "",
+    selectedCuisines: [],
+    budget: null,
+    waitingForGroceryListResponse: false,
+    waitingForPlaceOrderResponse: false,
+    location: null,
+    awaitingLocation: true,
   };
+};
 
 // Modified start command with debug logging
 bot.start(async (ctx) => {
-    try {
-        const chatId = ctx.chat.id;
-        resetUserState(chatId); // Now properly initializes state
-        console.log("Reset state:", userState[chatId]); // Add this debug line
-        
-        await ctx.reply("Welcome! Please share location...");
-      const message = await ctx.reply("Please share your location:", {
-        reply_markup: {
-          keyboard: [[{
-            text: "📍 Share Location",
-            request_location: true
-          }]],
-          one_time_keyboard: true,
-          resize_keyboard: true
-        }
-      });
-      console.log(`Location request message ID: ${message.message_id}`);
-      
-    } catch (error) {
-      console.error("Error in start command:", error);
-    }
-  });
-  
-  // Enhanced location handler with debugging
-  bot.on('location', async (ctx) => {
+  try {
     const chatId = ctx.chat.id;
-    console.log(`Location received from ${chatId}`);
-    
-    try {
-      const state = userState[chatId];
-      console.log(`User state before processing: ${JSON.stringify(state)}`);
-      
-      if (!state?.awaitingLocation) {
-        console.log(`Ignoring location from ${chatId} - not awaiting location`);
-        return;
-      }
-  
-      // Validate location structure
-      if (!ctx.message?.location) {
-        console.log(`Invalid location format from ${chatId}`);
-        await ctx.reply("Invalid location format. Please try again.");
-        return;
-      }
-  
-      const { latitude, longitude } = ctx.message.location;
-      console.log(`Raw coordinates: ${latitude},${longitude}`);
-  
-      // Add User-Agent header for Nominatim compliance
-      const headers = {
-        'User-Agent': 'MealPlannerBot/1.0 (contact@example.com)'
-      };
-  
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`,
-        { headers }
-      );
-      
-      console.log(`Geocoding response status: ${response.status}`);
-      const data = await response.json();
-      console.log(`Geocoding response data: ${JSON.stringify(data)}`);
-  
-      if (!data.address) {
-        console.log(`No address found for coordinates ${latitude},${longitude}`);
-        await ctx.reply("Couldn't determine location. Please try again.");
-        return;
-      }
-  
-      // Store formatted location in Redis
-      const locationData = {
-        coordinates: { lat: latitude, lon: longitude },
-        address: {
-          city: data.address.city || data.address.town || data.address.village,
-          region: data.address.state,
-          country: data.address.country,
-          country_code: data.address.country_code
-        }
-      };
-      
-      console.log(`Storing location for ${chatId}: ${JSON.stringify(locationData)}`);
-      await redis.setex(`user:${chatId}:location`, 86400, JSON.stringify(locationData));
-  
-      // Update user state
-      userState[chatId] = {
-        ...state,
-        location: locationData,
-        awaitingLocation: false
-      };
-  
-      console.log(`Updated user state: ${JSON.stringify(userState[chatId])}`);
-      
-      // Proceed to diet selection
-      await ctx.reply(`Thanks! Detected location: ${locationData.address.city}, ${locationData.address.country}`);
-      await ctx.reply("Now select your diet option:", {
-        reply_markup: {
-          keyboard: [dietOptions],
-          one_time_keyboard: true,
-        }
-      });
-  
-    } catch (error) {
-      console.error("Location processing error:", error);
-      await ctx.reply("Couldn't process location. Please try again.");
-      // Send error details to developer
-      await bot.telegram.sendMessage(
-        process.env.ADMIN_CHAT_ID, 
-        `Location error from ${chatId}: ${error.message}`
-      );
+    resetUserState(chatId); // Now properly initializes state
+    console.log("Reset state:", userState[chatId]); // Add this debug line
+
+    await ctx.reply("Welcome! Please share location...");
+    const message = await ctx.reply("Please share your location:", {
+      reply_markup: {
+        keyboard: [
+          [
+            {
+              text: "📍 Share Location",
+              request_location: true,
+            },
+          ],
+        ],
+        one_time_keyboard: true,
+        resize_keyboard: true,
+      },
+    });
+    console.log(`Location request message ID: ${message.message_id}`);
+  } catch (error) {
+    console.error("Error in start command:", error);
+  }
+});
+
+// Enhanced location handler with debugging
+bot.on("location", async (ctx) => {
+  const chatId = ctx.chat.id;
+  console.log(`Location received from ${chatId}`);
+
+  try {
+    const state = userState[chatId];
+    console.log(`User state before processing: ${JSON.stringify(state)}`);
+
+    if (!state?.awaitingLocation) {
+      console.log(`Ignoring location from ${chatId} - not awaiting location`);
+      return;
     }
-  });
+
+    // Validate location structure
+    if (!ctx.message?.location) {
+      console.log(`Invalid location format from ${chatId}`);
+      await ctx.reply("Invalid location format. Please try again.");
+      return;
+    }
+
+    const { latitude, longitude } = ctx.message.location;
+    console.log(`Raw coordinates: ${latitude},${longitude}`);
+
+    // Add User-Agent header for Nominatim compliance
+    const headers = {
+      "User-Agent": "MealPlannerBot/1.0 (contact@example.com)",
+    };
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`,
+      { headers }
+    );
+
+    console.log(`Geocoding response status: ${response.status}`);
+    const data = await response.json();
+    console.log(`Geocoding response data: ${JSON.stringify(data)}`);
+
+    if (!data.address) {
+      console.log(`No address found for coordinates ${latitude},${longitude}`);
+      await ctx.reply("Couldn't determine location. Please try again.");
+      return;
+    }
+
+    // Store formatted location in Redis
+    const locationData = {
+      coordinates: { lat: latitude, lon: longitude },
+      address: {
+        city: data.address.city || data.address.town || data.address.village,
+        region: data.address.state,
+        country: data.address.country,
+        country_code: data.address.country_code,
+      },
+    };
+
+    console.log(
+      `Storing location for ${chatId}: ${JSON.stringify(locationData)}`
+    );
+    await redis.setex(
+      `user:${chatId}:location`,
+      86400,
+      JSON.stringify(locationData)
+    );
+
+    // Update user state
+    userState[chatId] = {
+      ...state,
+      location: locationData,
+      awaitingLocation: false,
+    };
+
+    console.log(`Updated user state: ${JSON.stringify(userState[chatId])}`);
+
+    // Proceed to diet selection
+    await ctx.reply(
+      `Thanks! Detected location: ${locationData.address.city}, ${locationData.address.country}`
+    );
+    await ctx.reply("Now select your diet option:", {
+      reply_markup: {
+        keyboard: [dietOptions],
+        one_time_keyboard: true,
+      },
+    });
+  } catch (error) {
+    console.error("Location processing error:", error);
+    await ctx.reply("Couldn't process location. Please try again.");
+    // Send error details to developer
+    await bot.telegram.sendMessage(
+      process.env.ADMIN_CHAT_ID,
+      `Location error from ${chatId}: ${error.message}`
+    );
+  }
+});
 // Function to reset state for a new user
 
 const API_BASE_URL = "https://265c-192-5-91-93.ngrok-free.app/auth/kroger";
@@ -234,6 +238,7 @@ const parseMealPlan = (content) => {
 };
 const handleGenerateMealPlan = async (chatId) => {
   const user = userState[chatId];
+
   if (
     !user ||
     !user.dietPreference ||
@@ -243,87 +248,76 @@ const handleGenerateMealPlan = async (chatId) => {
   ) {
     await bot.telegram.sendMessage(
       chatId,
-      "Please complete all steps before generating a meal plan."
+      "⚠️ Please complete all steps before generating a meal plan."
     );
     return;
   }
 
-  const {
-    dietPreference,
-    subGoal,
-    includeIngredients,
-    foodPreference,
-    cuisinePreference,
-    selectedCuisines,
-  } = user;
-
   try {
-    await bot.telegram.sendMessage(
-      chatId,
-      "Generating a meal plan with your preferences..."
-    );
+    await bot.telegram.sendMessage(chatId, "🔄 Generating your meal plan...");
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    console.log("🚀 Sending request to backend:", {
+      diet: user.dietPreference,
+      subGoal: user.subGoal,
+      foodPreference: user.foodPreference,
+      cuisinePreference: user.cuisinePreference,
+      includeIngredients: user.includeIngredients || "None",
+      budget: user.budget || "No budget specified",
+      ingredientsAtHome: user.ingredientsAtHome || "None",
+    });
+
+    const response = await fetch("http://127.0.0.1:8000/meals/generate", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful meal planning assistant.",
-          },
-          {
-            role: "user",
-            content: `Create a meal plan with CALORIES for a ${dietPreference.toLowerCase()} diet to ${subGoal.toLowerCase()} weight, strictly adhering to a ${foodPreference.toLowerCase()} preference and include ${cuisinePreference}. exclude these ingredients striclty: ${includeIngredients}. Provide exactly 6 options for breakfast, lunch, and dinner without including any additional information.`,
-          },
-        ],
+        diet: user.dietPreference,
+        subGoal: user.subGoal,
+        foodPreference: user.foodPreference,
+        cuisinePreference: user.cuisinePreference,
+        includeIngredients: user.includeIngredients || "",
+        budget: user.budget || "No budget specified",
+        ingredientsAtHome: user.ingredientsAtHome || "",
       }),
     });
 
     const data = await response.json();
-    console.log("Full API response:", data);
 
-    if (
-      !data.choices ||
-      !data.choices[0] ||
-      !data.choices[0].message ||
-      !data.choices[0].message.content
-    ) {
-      console.error("Invalid API response structure:", data);
+    console.log("Response from backend:", data);
+
+    if (!data || data.error) {
+      console.error("⚠️ Backend returned an error:", data.error || data);
       await bot.telegram.sendMessage(
         chatId,
-        "Failed to retrieve a valid meal plan. Please try again later."
+        " Failed to generate meal plan. Please try again later."
       );
       return;
     }
 
-    const assistantMessage = data.choices[0].message.content;
+    const mealPlan = data.meal_plan;
 
     await bot.telegram.sendMessage(
       chatId,
-      `Here’s your meal plan:\n\n${assistantMessage}`
+      ` **Here’s your meal plan:**\n\n${mealPlan}`
     );
-    mealPlan = assistantMessage;
+
+    userState[chatId].mealPlan = mealPlan;
+
     await bot.telegram.sendMessage(
       chatId,
-      "Would you like a grocery list? Reply with 'Yes' or 'No'."
+      " Would you like a grocery list? Reply with 'Yes' or 'No'."
     );
-    userState[chatId] = {
-      ...userState[chatId],
-      waitingForGroceryListResponse: true,
-    }; // Update state
+    userState[chatId].waitingForGroceryListResponse = true;
   } catch (error) {
     console.error("Error generating meal plan:", error);
     await bot.telegram.sendMessage(
       chatId,
-      "Something went wrong while generating your meal plan."
+      "⚠️ Failed to generate meal plan. Please try again later."
     );
   }
 };
+
 const refreshTokensCronJob = async () => {
   try {
     // Fetch all users with tokens stored in Redis
@@ -406,79 +400,57 @@ bot.command("get_kroger_token", async (ctx) => {
 });
 
 const handleGenerateGroceryList = async (chatId) => {
-  if (!mealPlan || Object.keys(mealPlan).length === 0) {
+  const user = userState[chatId];
+
+  if (!user?.mealPlan) {
     await bot.telegram.sendMessage(
       chatId,
-      "Please generate a meal plan first."
+      "⚠️ Please generate a meal plan first before requesting a grocery list."
     );
     return;
   }
 
   try {
-    await bot.telegram.sendMessage(chatId, "Generating your grocery list...");
+    await bot.telegram.sendMessage(chatId, " Generating your grocery list...");
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("http://127.0.0.1:8000/groceries/generate", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4-turbo",
-        messages: [
-          {
-            role: "system",
-            content: `
-            Generate a structured human-readable grocery list for the following meal plan: ${JSON.stringify(
-              mealPlan
-            )}. For each ingredient, include only "ingredient" and "quantity" in the format:
-            ingredient: quantity round up to whole number only
-            ingredient: quantity round up to whole number number only
-            strictly follow format:
-            Eggs: 12
-            Milk: 1 
-            Do not include sections like breakfast, lunch, or dinner.dont show calories. remove unnecessary words like "minced",
-      "chopped",
-      "sliced",
-      "diced",
-      "shredded",
-      "toasted",
-      "grated",
-      "peeled",
-      "seeded",
-      "cut",
-      "thinly",
-      "to taste"
-      "freshly","roasted","baked","steamed","toast", "grilled","smoked","vegetables", "cooked",etc. Only list the main whole ingredients with their quantities. Add up duplicates and show once dont show the same ingredient twice.`,
-          },
-        ],
+        meal_plan: user.mealPlan,
       }),
     });
 
     const data = await response.json();
-    const groceryList = data.choices?.[0]?.message?.content;
 
-    if (!groceryList) {
-      throw new Error("Invalid response from OpenAI API.");
+    if (data.error) {
+      throw new Error(data.error);
     }
 
+    const groceryList = data.grocery_list;
+
     await bot.telegram.sendMessage(
       chatId,
-      `Here's your grocery list:\n\n${groceryList}`
+      `🛍 **Here’s your grocery list:**\n\n${groceryList}`
     );
+
     await bot.telegram.sendMessage(
       chatId,
-      "Would you like to Place Order? Reply with 'Yes' or 'No'"
+      "🛒 Would you like to place an order? Reply with 'Yes' or 'No'."
     );
+
     userState[chatId].waitingForPlaceOrderResponse = true;
   } catch (error) {
     console.error("Error generating grocery list:", error);
     await bot.telegram.sendMessage(
       chatId,
-      "Something went wrong. Please try again."
+      "⚠️ Failed to generate grocery list. Please try again later."
     );
   }
 };
+
 // const response = await fetch("https://api.openai.com/v1/chat/completions", {
 //     method: "POST",
 //     headers: {
@@ -583,7 +555,7 @@ async function handlePlaceOrder(chatId) {
       const loginUrl = `http://localhost:3001/auth/kroger/login?state=${chatId}`;
       await bot.telegram.sendMessage(
         chatId,
-        `Please log in to Kroger first:\n${loginUrl}\n\nAfter you log in, come back and type "Place order" again.`
+        `Please log in to Kroger first, After you log in, come back and type "Place order" again.`
       );
       return;
     }
@@ -674,6 +646,8 @@ bot.on("text", async (ctx) => {
 
         const externalUrl = `tg://openmessage?url=${encodeURIComponent(loginUrl)}`;
 
+     
+
       await ctx.reply("Please tap the button below to log in to Kroger:", {
         reply_markup: {
           inline_keyboard: [
@@ -687,7 +661,7 @@ bot.on("text", async (ctx) => {
         },
       });
       state.waitingForPlaceOrderResponse = false;
-      return;
+
       await handlePlaceOrder(chatId);
     } else if (userMessage.trim().toLowerCase() === "no") {
       await ctx.reply("Okay, order cancelled.");
